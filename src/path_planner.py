@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3D)
 from scipy.spatial.transform import Rotation as R
 
 from system_constants import *
@@ -198,7 +200,89 @@ def numerical_grad_J(arm_angle, target_pos,
 
     return g
 
-def plan_robot_path(arm_angles, target_pos, 
+def seed_arm_angles_from_target(target_pos,
+                                q_min=np.deg2rad(np.array([-90.0, -135.0, -135.0,  -45.0])),
+                                q_max=np.deg2rad(np.array([ 90.0,  135.0,  135.0,   45.0])),
+                                eps_deg=2.0):
+    """
+    Return a 4-vector [psi, theta_A, theta_B, theta_C] as a kinematically-consistent seed
+    that respects the provided joint limits (yaw uses q_min[0], q_max[0]; pitches use indices 1:4).
+
+    Strategy:
+      - Fix yaw psi = clip(atan2(y, x), [q_min[0], q_max[0]]).
+      - Translate target to shoulder (subtract r_AB_inA) and rotate into the yaw-aligned plane.
+      - Two-link IK in that plane for links L2=||r_BC_inB|| and L3=||r_CD_inC||.
+      - Try both elbow branches (down/up), set wrist theta_C = 0 as a neutral seed.
+      - Bias a couple of degrees inside limits and clip.
+      - Choose the branch with smaller tip position error.
+
+    Returns:
+      q0 : np.ndarray shape (4,) = [psi, theta_A, theta_B, theta_C]
+    """
+    target_pos = np.asarray(target_pos, dtype=float).reshape(3)
+    q_min = np.asarray(q_min, dtype=float).reshape(4)
+    q_max = np.asarray(q_max, dtype=float).reshape(4)
+
+    # Limits split
+    psi_min, psi_max = float(q_min[0]), float(q_max[0])
+    qmin_pitch = q_min[1:].copy()
+    qmax_pitch = q_max[1:].copy()
+
+    # Link lengths
+    L2 = float(np.linalg.norm(r_BC_inB))   # 4.5
+    L3 = float(np.linalg.norm(r_CD_inC))   # 2.0
+
+    # 1) Yaw from target (clipped)
+    psi = float(np.clip(np.arctan2(target_pos[1], target_pos[0]), psi_min, psi_max))
+
+    # 2) Shoulder-relative, then rotate into yaw-aligned x'-z' plane
+    p_rel_A = target_pos - r_AB_inA
+    p_rel_plane = R.from_rotvec(-psi * z_hat).apply(p_rel_A)
+    x_p, z_p = float(p_rel_plane[0]), float(p_rel_plane[2])
+
+    # Radial distance in plane (clipped to reachable annulus)
+    tiny = 1e-6
+    rho = float(np.hypot(x_p, z_p))
+    rho_min = abs(L2 - L3) + tiny
+    rho_max = (L2 + L3) - tiny
+    rho = float(np.clip(rho, rho_min, rho_max))
+
+    # Common elbow cosine (clamped)
+    cB = (rho*rho - L2*L2 - L3*L3) / (2.0 * L2 * L3)
+    cB = float(np.clip(cB, -1.0, 1.0))
+    acos_cB = float(np.arccos(cB))
+
+    def bias_clip(qv, lo, hi, eps_rad):
+        qv = np.asarray(qv, dtype=float)
+        lo_b = lo + eps_rad
+        hi_b = hi - eps_rad
+        return np.minimum(np.maximum(qv, lo_b), hi_b)
+
+    eps = np.deg2rad(float(eps_deg))
+
+    # --- Branch 1: elbow-down (theta_B >= 0)
+    theta_B_dn = +acos_cB
+    theta_A_dn = float(np.arctan2(z_p, x_p) - np.arctan2(L3*np.sin(theta_B_dn), L2 + L3*np.cos(theta_B_dn)))
+    theta_C_dn = 0.0
+    q_pitch_dn = bias_clip(np.array([theta_A_dn, theta_B_dn, theta_C_dn]), qmin_pitch, qmax_pitch, eps)
+    q_dn = np.array([psi, q_pitch_dn[0], q_pitch_dn[1], q_pitch_dn[2]], dtype=float)
+
+    # --- Branch 2: elbow-up (theta_B <= 0)
+    theta_B_up = -acos_cB
+    theta_A_up = float(np.arctan2(z_p, x_p) - np.arctan2(L3*np.sin(theta_B_up), L2 + L3*np.cos(theta_B_up)))
+    theta_C_up = 0.0
+    q_pitch_up = bias_clip(np.array([theta_A_up, theta_B_up, theta_C_up]), qmin_pitch, qmax_pitch, eps)
+    q_up = np.array([psi, q_pitch_up[0], q_pitch_up[1], q_pitch_up[2]], dtype=float)
+
+    # Pick branch with smaller tip position error
+    (_, _, _, p_dn), _ = fk_ABCD(q_dn[0], q_dn[1], q_dn[2], q_dn[3])
+    (_, _, _, p_up), _ = fk_ABCD(q_up[0], q_up[1], q_up[2], q_up[3])
+    err_dn = float(np.linalg.norm(p_dn - target_pos))
+    err_up = float(np.linalg.norm(p_up - target_pos))
+
+    return q_dn if err_dn <= err_up else q_up
+
+def plan_robot_path(target_pos, 
                     update_factor=0.001, 
                     max_iterations=1000, 
                     state_error_theshold=0.5,
@@ -206,19 +290,18 @@ def plan_robot_path(arm_angles, target_pos,
 
     MAX_ITERATIONS = max_iterations
     STATE_ERROR_THRESHOLD = state_error_theshold # half an inch accuracy
+    # storing optimzation history
+    # set yaw from target once (fixed) and use only pitch joints for optimization
+    curr_arm_angle = seed_arm_angles_from_target(target_pos)
 
     # initializing optimazation problem
-    (_, _, _, current_pos), _ = fk_ABCD(arm_angles[0], arm_angles[1], arm_angles[2], arm_angles[3])
+    (_, _, _, current_pos), _ = fk_ABCD(curr_arm_angle[0], curr_arm_angle[1], curr_arm_angle[2], curr_arm_angle[3])
     state_error = np.linalg.norm(current_pos - target_pos)
     curr_iteration = 0
 
-    # storing optimzation history
-    # set yaw from target once (fixed) and use only pitch joints for optimization
-    psi = yaw_from_target(target_pos)
-    curr_arm_angle = np.array([psi, arm_angles[1], arm_angles[2], arm_angles[3]], dtype=float)
     arm_angle_history = [ curr_arm_angle ]
     arm_position_history = [ current_pos ]
-    cost_history = [ cost_J(arm_angles, target_pos) ]
+    cost_history = [ cost_J(curr_arm_angle, target_pos) ]
     state_error_history = [ state_error ]
 
     while state_error > STATE_ERROR_THRESHOLD and curr_iteration < MAX_ITERATIONS:
@@ -272,7 +355,6 @@ def sample_targets_in_region(n, radius=10.5, seed=0):
 
 def path_planning_algorithm_analysis(
         n=200,
-        start_angles=np.deg2rad(np.array([0.0, -90.0, 0.0, 0.0])),
         radius=10.5,
         seed=0,
         update_factor=0.01,
@@ -288,10 +370,7 @@ def path_planning_algorithm_analysis(
     for i, tgt in enumerate(targets):
         print("iteration %d/%d" % (i, n))
         # just call your plan_robot_path here
-        psi0 = np.clip(np.arctan2(tgt[1], tgt[0]), -np.pi/2, np.pi/2)
-        start_angles[0] = psi0
         hist, q_sol, k = plan_robot_path(
-            start_angles.copy(),
             tgt,
             update_factor=update_factor,
             max_iterations=max_iterations,
@@ -324,19 +403,96 @@ def path_planning_algorithm_analysis(
 
     return results
 
+def plot_target_outcomes(analysis, title="Target outcomes (green=success, red=failure)", radius=None):
+    targets = np.asarray(analysis["targets"])
+    success = np.asarray(analysis["success"]).astype(bool)
+
+    # pick a radius if not provided
+    if radius is None:
+        r_pts = float(np.max(np.linalg.norm(targets, axis=1))) if targets.size else 1.0
+        radius = max(1.0, r_pts)
+    R = float(radius)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # symmetric limits that include feasible set
+    L = R * 1.05
+    ax.set_xlim(-L, L); ax.set_ylim(-L, L); ax.set_zlim(-L, L)
+
+    # scatter points
+    if np.any(success):
+        s_pts = targets[success]
+        ax.scatter(s_pts[:,0], s_pts[:,1], s_pts[:,2],
+                   s=20, marker='o', label=f"success ({success.sum()})", alpha=0.9, c='g')
+    if np.any(~success):
+        f_pts = targets[~success]
+        ax.scatter(f_pts[:,0], f_pts[:,1], f_pts[:,2],
+                   s=20, marker='x', label=f"failure ({(~success).sum()})", alpha=0.9, c='r')
+
+    # ---- clipped plane x = 0 (only where z>-1 and y^2+z^2 <= R^2)
+    y = np.linspace(-R, R, 60)
+    z = np.linspace(-R, R, 60)
+    Yg, Zg = np.meshgrid(y, z)
+    Xg = np.zeros_like(Yg)
+    mask_x0 = (Zg > -1.0) & (Yg**2 + Zg**2 <= R**2)
+    Xg_plot = np.where(mask_x0, Xg, np.nan)
+    Yg_plot = np.where(mask_x0, Yg, np.nan)
+    Zg_plot = np.where(mask_x0, Zg, np.nan)
+    ax.plot_surface(Xg_plot, Yg_plot, Zg_plot, alpha=0.12, color='k', edgecolor='none')
+
+    # ---- clipped plane z = -1 (only where x>0 and x^2+y^2 + 1 <= R^2)
+    x = np.linspace(0.0, R, 60)       # x>0 half-space already applied
+    y = np.linspace(-R, R, 60)
+    Xg2, Yg2 = np.meshgrid(x, y)
+    Zg2 = np.full_like(Xg2, -1.0)
+    mask_zm1 = (Xg2**2 + Yg2**2 + 1.0 <= R**2)
+    Xg2_plot = np.where(mask_zm1, Xg2, np.nan)
+    Yg2_plot = np.where(mask_zm1, Yg2, np.nan)
+    Zg2_plot = np.where(mask_zm1, Zg2, np.nan)
+    ax.plot_surface(Xg2_plot, Yg2_plot, Zg2_plot, alpha=0.12, color='k', edgecolor='none')
+
+    # ---- clipped sphere ||p|| = R (only where x>0 and z>-1)
+    u = np.linspace(0, 2*np.pi, 120)
+    v = np.linspace(0, np.pi, 60)
+    csu, snu = np.cos(u), np.sin(u)
+    snv, csv = np.sin(v), np.cos(v)
+    xs = R * np.outer(csu, snv)
+    ys = R * np.outer(snu, snv)
+    zs = R * np.outer(np.ones_like(u), csv)
+    mask_sphere = (xs > 0.0) & (zs > -1.0)
+    xs_p = np.where(mask_sphere, xs, np.nan)
+    ys_p = np.where(mask_sphere, ys, np.nan)
+    zs_p = np.where(mask_sphere, zs, np.nan)
+    ax.plot_surface(xs_p, ys_p, zs_p, rstride=2, cstride=2, alpha=0.06, color='k', edgecolor='none')
+    ax.plot_wireframe(xs_p, ys_p, zs_p, linewidth=0.4, color='k', alpha=0.25, label=f"feasible boundary")
+
+    # labels/title
+    ax.set_xlabel('X (A)'); ax.set_ylabel('Y (A)'); ax.set_zlabel('Z (A)')
+    rate = float(np.mean(success)) if success.size else 0.0
+    ax.set_title(f"{title}\nSuccess rate: {rate:.2%}")
+
+    # equal aspect & reapply limits
+    try:
+        ax.set_box_aspect((1,1,1))
+    finally:
+        ax.set_xlim(-L, L); ax.set_ylim(-L, L); ax.set_zlim(-L, L)
+
+    ax.legend(loc='upper right')
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == '__main__':
 
+    radius = 9.0
     analysis = path_planning_algorithm_analysis(
-        n=50,
-        start_angles=np.deg2rad([0.0, 0.0, 0.0, 0.0]),
-        radius=5.0,
+        n=1000,
+        radius=radius,
         seed=42,
-        update_factor=0.01,
-        state_error_threshold=0.1,
-        max_iterations=5000
+        update_factor=0.05,
+        state_error_threshold=0.5,
+        max_iterations=100
     )
 
-    for idx, targets in enumerate(analysis["targets"]):
-        print(analysis["targets"][idx])
-        import pdb; pdb.set_trace()
+    plot_target_outcomes(analysis, radius)
