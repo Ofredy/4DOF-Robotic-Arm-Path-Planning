@@ -51,9 +51,7 @@ The system simulates a 4-DoF arm (base yaw + 3 pitch joints) with realistic **jo
 ---
 
 ## 📊 Example Usage
-
-```bash
-python main.py
+python main.py 
 
 This will:
 
@@ -65,7 +63,7 @@ Print iteration progress to the terminal.
 
 Save the resulting visualizations.
 
-📈 Results
+## 📈 Results
 
 The algorithm achieves robust convergence for most reachable targets within the workspace. Successful points are marked green, while failures (did not converge within iteration or error thresholds) are red.
 
