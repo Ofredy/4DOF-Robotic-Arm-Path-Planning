@@ -54,3 +54,83 @@ The system simulates a 4-DoF arm (base yaw + 3 pitch joints) with realistic **jo
 
 ```bash
 python main.py
+
+This will:
+
+Sample 1000 random targets inside the workspace.
+
+Run the Gauss–Newton planner for each.
+
+Print iteration progress to the terminal.
+
+Save the resulting visualizations.
+
+📈 Results
+
+The algorithm achieves robust convergence for most reachable targets within the workspace. Successful points are marked green, while failures (did not converge within iteration or error thresholds) are red.
+
+View	Description	File
+Top View	Projection of reachable vs unreachable targets on XY plane.	misc/top_view.png
+Side View	Visualization of workspace in XZ plane and arm reach limits.	misc/side_view.png
+
+Example success visualization (3D scatter plot):
+
+Green dots → Converged end-effector positions
+
+Red crosses → Failed convergence
+
+Transparent surfaces → Workspace boundary planes and sphere
+
+📦 Repository Structure
+├── system_model.py           # Defines arm geometry and link vectors
+├── main.py                   # Contains the path-planning and optimization logic
+├── misc/
+│   ├── top_view.png
+│   └── side_view.png
+└── README.md
+
+🧮 Dependencies
+
+Python ≥ 3.9
+
+NumPy
+
+SciPy
+
+Matplotlib
+
+Install all dependencies with:
+
+pip install numpy scipy matplotlib
+
+🚀 Key Insights
+
+The Gauss–Newton method provides fast convergence near feasible regions.
+
+Numerical Jacobians allow easy adaptation to arbitrary kinematic chains.
+
+Success rates degrade slightly near workspace boundaries, consistent with mechanical reach limits.
+
+The algorithm demonstrates scalability for randomized motion planning tasks.
+
+🧠 Future Work
+
+Implement analytical Jacobians for improved numerical stability.
+
+Add obstacle avoidance constraints in the cost function.
+
+Extend to 6-DoF arms with roll and wrist orientation tracking.
+
+Integrate visualization of motion trajectory animations.
+
+🖼️ Visualization of Results
+
+The following figures show the performance of the path-planning algorithm from two perspectives:
+
+🔹 Side View
+
+Shows the distribution of reachable target points in the XZ plane, visualizing how the arm performs vertically.
+
+🔹 Top View
+
+Shows the XY projection, illustrating radial reachability and overall distribution of success/failure zones.
