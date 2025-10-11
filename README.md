@@ -55,13 +55,10 @@ python main.py
 
 This will:
 
-Sample 1000 random targets inside the workspace.
-
-Run the Gauss–Newton planner for each.
-
-Print iteration progress to the terminal.
-
-Save the resulting visualizations.
+- Sample 1000 random targets inside the workspace.
+- Run the Gauss–Newton planner for each.
+- Print iteration progress to the terminal.
+- Save the resulting visualizations.
 
 ## 📈 Results
 
@@ -79,29 +76,7 @@ Red crosses → Failed convergence
 
 Transparent surfaces → Workspace boundary planes and sphere
 
-📦 Repository Structure
-├── system_model.py           # Defines arm geometry and link vectors
-├── main.py                   # Contains the path-planning and optimization logic
-├── misc/
-│   ├── top_view.png
-│   └── side_view.png
-└── README.md
-
-🧮 Dependencies
-
-Python ≥ 3.9
-
-NumPy
-
-SciPy
-
-Matplotlib
-
-Install all dependencies with:
-
-pip install numpy scipy matplotlib
-
-🚀 Key Insights
+## 🚀 Key Insights
 
 The Gauss–Newton method provides fast convergence near feasible regions.
 
@@ -111,7 +86,7 @@ Success rates degrade slightly near workspace boundaries, consistent with mechan
 
 The algorithm demonstrates scalability for randomized motion planning tasks.
 
-🧠 Future Work
+## 🧠 Future Work
 
 Implement analytical Jacobians for improved numerical stability.
 
@@ -121,7 +96,7 @@ Extend to 6-DoF arms with roll and wrist orientation tracking.
 
 Integrate visualization of motion trajectory animations.
 
-🖼️ Visualization of Results
+## 🖼️ Visualization of Results
 
 The following figures show the performance of the path-planning algorithm from two perspectives:
 
