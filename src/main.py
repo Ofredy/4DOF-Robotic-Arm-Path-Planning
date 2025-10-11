@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 
-from system_constants import *
+from system_model import *
 from path_planner import *
 
 

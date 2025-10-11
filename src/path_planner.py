@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3D)
 from scipy.spatial.transform import Rotation as R
 
-from system_constants import *
+from system_model import *
 
 
 z_hat = np.array([0.0, 0.0, 1.0])
