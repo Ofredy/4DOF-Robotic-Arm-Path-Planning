@@ -76,6 +76,18 @@ Red crosses → Failed convergence
 
 Transparent surfaces → Workspace boundary planes and sphere
 
+## 🖼️ Visualization of Results
+
+The following figures show the performance of the path-planning algorithm from two perspectives:
+
+![System Side View](misc/side_view.png)
+
+Shows the distribution of reachable target points in the XZ plane, visualizing how the arm performs vertically.
+
+![System Top View](misc/top_view.png)
+
+Shows the XY projection, illustrating radial reachability and overall distribution of success/failure zones.
+
 ## 🚀 Key Insights
 
 The Gauss–Newton method provides fast convergence near feasible regions.
@@ -95,15 +107,3 @@ Add obstacle avoidance constraints in the cost function.
 Extend to 6-DoF arms with roll and wrist orientation tracking.
 
 Integrate visualization of motion trajectory animations.
-
-## 🖼️ Visualization of Results
-
-The following figures show the performance of the path-planning algorithm from two perspectives:
-
-🔹 Side View
-
-Shows the distribution of reachable target points in the XZ plane, visualizing how the arm performs vertically.
-
-🔹 Top View
-
-Shows the XY projection, illustrating radial reachability and overall distribution of success/failure zones.
